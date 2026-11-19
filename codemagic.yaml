@@ -1,0 +1,19 @@
+# Manual build on Codemagic's individual free macOS M2 allowance (same setup as partikel-capture).
+# Started by .github/workflows/build.yml through the Codemagic API. No webhooks, publishing or signing credentials.
+workflows:
+  watch-unsigned:
+    name: TiltFace - iPhone host + watch app, unsigned
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      xcode: latest
+    scripts:
+      - name: Check Xcode, iPhoneOS and watchOS SDKs
+        script: python3 tools/build.py --check
+      - name: Compile iPhone host + embedded watch app and package IPA
+        script: python3 tools/build.py
+    artifacts:
+      - build/**/TiltFace-unsigned.ipa
+      - build/**/build-report.json
+      - build/**/build.log
+      - build/**/build.xcresult
