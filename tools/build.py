@@ -141,10 +141,11 @@ def main():
               'sourceRevision': git.stdout.strip() if git.returncode == 0 else None}
     try:
         xcodegen = generator(attempt)
-        command([xcodegen, 'generate', '--spec', ROOT / 'project.yml', '--project', attempt], log)
+        # Generate next to the spec: build settings such as INFOPLIST_FILE are resolved relative to the project folder.
+        command([xcodegen, 'generate', '--spec', ROOT / 'project.yml', '--project', ROOT], log)
         # No -sdk and no ARCHS override: the iOS host builds for iPhoneOS and Xcode builds the embedded
         # watch app for watchOS with its own architectures (arm64_32 + arm64).
-        command(['xcodebuild', '-project', attempt / f'{HOST}.xcodeproj', '-scheme', HOST,
+        command(['xcodebuild', '-project', ROOT / f'{HOST}.xcodeproj', '-scheme', HOST,
                  '-destination', 'generic/platform=iOS', '-configuration', 'Release',
                  '-derivedDataPath', attempt / 'DerivedData', '-resultBundlePath', attempt / 'build.xcresult',
                  'CODE_SIGNING_ALLOWED=NO', 'CODE_SIGNING_REQUIRED=NO', 'build'], log)
