@@ -6,17 +6,16 @@ SwiftUI + SpriteKit (`SpriteView`), CoreMotion `deviceMotion` at 60 Hz mapped to
 
 ## Build: no Mac needed
 
-The pipeline is the same one partikel-capture uses:
+The pipeline mirrors partikel-capture's:
 
-1. A push to `main` (or *Actions → Watch build → Run workflow*) starts `.github/workflows/build.yml` on a Boat VM.
+1. A push to `main` (or *Actions → Watch build → Run workflow*) starts `.github/workflows/build.yml` on GitHub's Linux runner (it only starts and follows the Mac build).
 2. That calls `tools/codemagic_build.py`, which runs the `watch-unsigned` workflow in `codemagic.yaml` on a Codemagic Mac mini M2.
 3. `tools/build.py` generates the project with pinned XcodeGen and compiles the **iPhone host app with the watch app embedded** (`TiltFace.app/Watch/TiltFaceWatch.app`). It checks both bundles and packages an unsigned IPA.
 4. The IPA is published as a GitHub release of that commit: `TiltFace-<version>-build.<n>-<commit>-unsigned.ipa`.
 
 One-time setup for the repo:
-- Codemagic: *Add application → GitHub → SVRN-Digital/tiltface* (the codemagic.yaml workflow is picked up automatically).
+- Codemagic: *Add application → GitHub → lparisi/tiltface* (the codemagic.yaml workflow is picked up automatically).
 - GitHub: repository secret `CODEMAGIC_TOKEN` (the same token partikel-capture uses).
-- boat.dev: add this repository so the `runs-on: boat` job has a runner.
 
 ## Install on the watch (Windows)
 

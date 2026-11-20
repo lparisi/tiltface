@@ -1,6 +1,7 @@
 # Every push to main builds the IPA on Codemagic (macOS M2, codemagic.yaml) and publishes it as a GitHub release of that commit
-# (tag v<version>-build.<run number>). Same pipeline as partikel-capture: the job runs on a Boat VM; GitHub's macOS runners are not used.
-# Needs the repository secret CODEMAGIC_TOKEN and the repo added as an app in Codemagic.
+# (tag v<version>-build.<run number>). Same pipeline as partikel-capture, but the thin polling job runs on GitHub's Linux runner
+# (personal repo, free minutes); the Mac work happens on Codemagic. Needs the repository secret CODEMAGIC_TOKEN and the repo added
+# as an app in Codemagic.
 name: Watch build
 on:
   push:
@@ -13,12 +14,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
-    runs-on: boat
-    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - name: GitHub CLI
-        run: command -v gh || (sudo apt-get update -qq && sudo apt-get install -y -qq gh)
       - name: Build on Codemagic, publish the IPA
         env:
           GH_TOKEN: ${{ github.token }}

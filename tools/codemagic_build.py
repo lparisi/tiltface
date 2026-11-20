@@ -104,7 +104,7 @@ def main():
         for f in files:
             if f.name == 'build-report.json':
                 report = out / f"{n['stem']}-build-report.json"; shutil.copyfile(f, report); assets.append(str(report))
-        repo = os.environ.get('GITHUB_REPOSITORY', f'SVRN-Digital/{a.repo}')
+        repo = os.environ.get('GITHUB_REPOSITORY', f'lparisi/{a.repo}')
         notes = (f'**iPhone app with the watch app inside (unsigned IPA):** [{named.name}](https://github.com/{repo}/releases/download/{tag}/{named.name})\n\n'
                  f'- Version {n["tag"][1:]}, commit {sha} ({a.branch})\n'
                                   f'- Codemagic build {build}, workflow {a.workflow}\n\n'
