@@ -31,13 +31,14 @@ vec3 envMetal(vec3 r, vec3 up, vec3 key, vec3 fill, float rough, float viewerDar
     return vec3(room + 1.6 * pow(k, e) + 4.0 * pow(k, e * 5.0) + 1.1 * pow(f, e * 0.7));
 }
 
-vec3 envCoat(vec3 r, vec3 key, vec3 fill) {
+// What the polished lacquer mirrors: a soft, elongated window (not a disk) and a broad bright ceiling sheen.
+vec3 envCoat(vec3 r, vec3 up, vec3 key, vec3 fill) {
+    vec3 side = normalize(cross(up, key) + vec3(1e-6));
+    float along = dot(r, side);
     float k = dot(r, key);
-    float f = dot(r, fill);
-    float box = smoothstep01(0.986, 0.993, k) * 14.0 + pow(clamp(k, 0.0, 1.0), 40.0) * 1.2;
-    float win = smoothstep01(0.965, 0.978, f) * 6.0;
-    float room = 0.05 + 0.10 * clamp(r.z, 0.0, 1.0);
-    return vec3(box + win + room);
+    float window = smoothstep01(0.90, 0.97, k + 0.9 * along * along) * smoothstep01(-0.35, -0.2, -abs(along)) * 2.2;
+    float sheen = 0.25 * smoothstep01(0.2, 0.95, dot(r, up));
+    return vec3(window + sheen + 0.04);
 }
 
 vec3 decodeNormal(vec2 enc) {
@@ -51,9 +52,9 @@ vec3 toLinear(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }
 
 void main() {
     // SpriteKit texture coordinates start bottom-left; the maps are authored top-down.
-    vec3 GOLD = vec3(1.00, 0.65, 0.32);       // rose-yellow gold reflectance
-    vec3 SIGMA = vec3(5.0, 3.1, 0.38);        // blue lacquer absorption per unit thickness
-    vec3 PIGMENT = vec3(0.010, 0.028, 0.20);  // light scattered back by the blue pigment
+    vec3 GOLD = vec3(1.00, 0.80, 0.55);       // champagne rose gold (satin)
+    vec3 SIGMA = vec3(3.4, 4.2, 0.55);        // ultramarine lacquer: absorbs green most, a little red passes
+    vec3 PIGMENT = vec3(0.030, 0.018, 0.21);  // light scattered back by the violet-blue pigment
 
     vec2 screen = vec2(v_tex_coord.x, 1.0 - v_tex_coord.y) * u_tex;
 
@@ -108,19 +109,19 @@ void main() {
     vec3 r = 2.0 * nov * nMetal - v;
     vec3 fres = GOLD + (vec3(1.0) - GOLD) * pow(1.0 - nov, 5.0);
     // Light bouncing between ridges of the relief picks up the gold colour twice (deeper, more saturated).
-    float cavity = clamp(0.55 + 0.6 * hgt, 0.0, 1.0);
-    vec3 gold = fres * envMetal(r, upn, key, fill, 0.45, 0.55) * (vec3(cavity) + (1.0 - cavity) * GOLD);
+    float cavity = clamp(0.75 + 0.5 * hgt, 0.0, 1.0);
+    vec3 gold = 1.18 * fres * envMetal(r, upn, key, fill, 0.2, 0.2) * (vec3(cavity) + (1.0 - cavity) * GOLD);
 
     // Blue lacquer
     float ncv = clamp(dot(nCoat, v), 0.001, 1.0);
     vec3 rc = 2.0 * ncv * nCoat - v;
     float fc = 0.04 + 0.96 * pow(1.0 - ncv, 5.0);
-    vec3 coat = fc * envCoat(rc, key, fill);
+    vec3 coat = fc * envCoat(rc, upn, key, fill);
     vec3 rb = 2.0 * dot(nMetal, v) * nMetal - v;
     float thick = hgt * 2.8;
     float path = thick * (0.5 + 0.5 / max(ncv, 0.25));
     vec3 trans = exp(-SIGMA * path);
-    vec3 base = 0.9 * envMetal(rb, upn, key, fill, 0.2, 0.0);
+    vec3 base = 0.7 * envMetal(rb, upn, key, fill, 0.1, 0.0);
     vec3 pigment = PIGMENT * (0.35 + 0.65 * clamp(dot(nCoat, key), 0.0, 1.0));
     vec3 body = (base * trans + pigment) * (1.0 - fc) * ao;
 
@@ -140,7 +141,7 @@ void main() {
     col *= 1.0 - 0.45 * tEdge * tEdge * tEdge;
     vec3 nb = normalize(vec3(nEdge * (tEdge * 1.1), 1.0));
     vec3 rb2 = 2.0 * dot(nb, v) * nb - v;
-    col += tEdge * tEdge * 0.06 * envCoat(rb2, key, fill);
+    col += tEdge * tEdge * 0.25 * envCoat(rb2, upn, key, fill);
     col = vec3(1.0) - exp(-col * 1.2);
     col = pow(clamp(col, 0.0, 1.0), vec3(1.0 / 1.15));
     if (linearised) { col = toLinear(col); }

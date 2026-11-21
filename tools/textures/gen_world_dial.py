@@ -147,15 +147,16 @@ def main(geojson, out_dir):
     d_in = ndimage.distance_transform_edt(land_bin)          # inside land, distance to coast
     d_out = ndimage.distance_transform_edt(~land_bin)        # in ocean, distance to coast
 
-    # --- stamped rose-gold relief: raised shoulder at the coast, ridged mountains, crumpled leaf texture
-    shoulder = np.clip(d_in / (5 * SS), 0, 1)
+    # --- stamped rose-gold relief, like the photos: broad terrain (ranges, plateaus) under a fine satin grain,
+    # with a thin crisp bevel at the coast. No mid-size blobs: those read as cork / plastic.
+    shoulder = np.clip(d_in / (2.2 * SS), 0, 1)
     shoulder = shoulder * shoulder * (3 - 2 * shoulder)
-    mountains = ridged(shape, 7, 5, 11)
-    mountains = np.clip((mountains - 0.35) / 0.65, 0, 1) ** 1.6
-    inland = np.clip(d_in / (22 * SS), 0, 1)
-    leaf = crumple(shape, 9000, 5) * 0.55 + crumple(shape, 36000, 6) * 0.30
-    grain = fbm(shape, 140, 2, 9) * 0.12
-    gold_h = 0.42 * shoulder + 0.38 * mountains * inland * shoulder + 0.22 * (1 - leaf) * shoulder + grain * shoulder
+    terrain = ridged(shape, 5, 5, 11)
+    terrain = np.clip((terrain - 0.30) / 0.70, 0, 1) ** 1.3
+    folds = ridged(shape, 22, 3, 12) * 0.35                     # creases of the stamping, softer than the ranges
+    inland = np.clip(d_in / (10 * SS), 0, 1)
+    grain = fbm(shape, 260, 2, 9) * 0.06                         # satin grain
+    gold_h = 0.22 * shoulder + (0.55 * terrain + folds) * inland * shoulder + grain * shoulder
     gold_h = gold_h * land
 
     # --- globe rim (half-round raised gold bezel) and applied markers
@@ -178,8 +179,10 @@ def main(geojson, out_dir):
     warp_y = fbm(shape, 4, 3, 32) * 40 * SS
     yy, xx = np.mgrid[0:GH, 0:GW]
     flow = ndimage.map_coordinates(fbm(shape, 9, 4, 33), [np.clip(yy + warp_y, 0, GH - 1), np.clip(xx + warp_x, 0, GW - 1)], order=1)
-    meniscus = np.clip(d_out / (9 * SS), 0, 1) ** 0.6
-    thick_globe = (0.78 + 0.28 * flow) * (0.45 + 0.55 * meniscus)
+    meniscus = np.clip(d_out / (4 * SS), 0, 1) ** 0.6
+    veins = ridged(shape, 6, 4, 34)
+    veins = np.clip((veins - 0.66) / 0.34, 0, 1) ** 1.6               # thin branching streaks of thicker lacquer
+    thick_globe = (0.75 + 0.30 * flow + 1.1 * veins) * (0.6 + 0.4 * meniscus)
     space = ~globe
     thick_space = 2.4 + 0.25 * fbm(shape, 5, 3, 41)    # deeper, darker lacquer outside the globe
     thickness = np.where(globe, thick_globe, thick_space)
@@ -188,14 +191,13 @@ def main(geojson, out_dir):
     # --- height field of the metal (gold relief or base), plus the globe dome
     Rs = R * 1.9                                            # shallow spherical dome
     dome = np.sqrt(np.clip(Rs ** 2 - np.minimum(r_px, R) ** 2, 0, None)) - np.sqrt(Rs ** 2 - R ** 2)
-    relief_scale = 7.0 * SS
+    relief_scale = 9.0 * SS
     metal_h = dome + relief_scale * np.where(gold_mask > 0.5, height_metal, base)
 
     gy, gx = np.gradient(ndimage.gaussian_filter(metal_h, 0.6))
     n_metal = np.stack([-gx, -gy, np.ones_like(gx)], -1)
 
-    # Hammered / stamped facets: small flat planes with their own tilt. Polished gold reads as gold because each
-    # facet either mirrors a light (flash) or the dark room (deep brown) — not a smooth matte gradient.
+    # Fine satin micro-facets on the gold: tiny, low tilt — a sparkle in the grain, not visible patches.
     def facets(n_points, seed, amount):
         r = np.random.default_rng(seed)
         pts = r.random((n_points, 2)) * np.array(shape)
@@ -204,7 +206,7 @@ def main(geojson, out_dir):
         tilt = r.normal(0, amount, (n_points, 2))
         return tilt[idx].reshape(shape[0], shape[1], 2)
 
-    tilt = facets(9000, 51, 0.20) + facets(40000, 52, 0.07)
+    tilt = facets(160000, 52, 0.06)
     on_gold = (land * globe * shoulder)[..., None]
     n_metal[..., 0:2] += tilt * on_gold
     n_metal /= np.linalg.norm(n_metal, axis=-1, keepdims=True)
@@ -226,7 +228,7 @@ def main(geojson, out_dir):
     flakes *= (gold_mask < 0.5)
 
     # --- ambient occlusion: lacquer next to raised gold is shaded a little
-    ao = 1 - 0.35 * np.clip(ndimage.gaussian_filter(gold_mask, 3 * SS) - gold_mask, 0, 1) * 2
+    ao = 1 - 0.12 * np.clip(ndimage.gaussian_filter(gold_mask, 1.5 * SS) - gold_mask, 0, 1) * 2
 
     material = gold_mask
     b_chan = np.where(material > 0.5, np.clip(height_metal, 0, 1), np.clip(thickness / 2.8, 0, 1))

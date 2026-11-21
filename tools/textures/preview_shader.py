@@ -8,9 +8,9 @@ import sys
 import numpy as np
 from PIL import Image
 
-GOLD = np.array([1.00, 0.65, 0.32])        # rose-yellow gold reflectance (display-referred)
-SIGMA = np.array([5.0, 3.1, 0.38])         # blue lacquer absorption per unit thickness (absorbs red, green)
-PIGMENT = np.array([0.010, 0.028, 0.20])   # light scattered back by the blue pigment
+GOLD = np.array([1.00, 0.80, 0.55])        # pale champagne rose gold (5N, satin), display-referred
+SIGMA = np.array([3.4, 4.2, 0.55])         # ultramarine lacquer: absorbs green most, a little red passes (violet cast)
+PIGMENT = np.array([0.030, 0.018, 0.21])   # light scattered back by the pigment (violet-blue)
 
 
 def norm(v):
@@ -40,13 +40,15 @@ def env_metal(r, up, key, fill, rough, viewer_dark=0.55):
     return room + 1.6 * k ** e + 4.0 * k ** (e * 5) + 1.1 * f ** (e * 0.7)
 
 
-def env_coat(r, key, fill):
+def env_coat(r, up, key, fill):
+    """What the polished lacquer mirrors: a soft, elongated window (not a disk) and a broad bright ceiling sheen."""
+    side = norm(np.cross(np.broadcast_to(up, r.shape), np.broadcast_to(key, r.shape)) + 1e-9)
+    along = dot(r, side)                       # across the window
     k = dot(r, key)
-    f = dot(r, fill)
-    box = smooth(0.986, 0.993, k) * 14.0 + np.clip(k, 0, 1) ** 40 * 1.2
-    win = smooth(0.965, 0.978, f) * 6.0
-    room = 0.05 + 0.10 * np.clip(r[..., 2:3], 0, 1)
-    return box + win + room
+    window = smooth(0.90, 0.97, k + 0.9 * along * along) * smooth(-0.35, -0.2, -np.abs(along)) * 2.2
+    sheen = 0.25 * smooth(0.2, 0.95, dot(r, up))
+    room = 0.04
+    return window + sheen + room
 
 
 def decode(enc):
@@ -115,17 +117,17 @@ def shade(metal, mat, g, view=None):
     r = 2 * nov * n_metal - v
     fres = GOLD + (1 - GOLD) * (1 - nov) ** 5
     # Light bouncing between ridges of the relief picks up the gold colour twice (deeper, more saturated).
-    cavity = np.clip(0.55 + 0.6 * hgt, 0, 1)
-    gold = fres * env_metal(r, upn, key, fill, 0.45) * (cavity + (1 - cavity) * GOLD)
+    cavity = np.clip(0.75 + 0.5 * hgt, 0, 1)
+    gold = 1.18 * fres * env_metal(r, upn, key, fill, 0.2, 0.2) * (cavity + (1 - cavity) * GOLD)
 
     ncv = np.clip(dot(n_coat, v), 0.001, 1)
     rc = 2 * ncv * n_coat - v
     fc = 0.04 + 0.96 * (1 - ncv) ** 5
-    coat = fc * env_coat(rc, key, fill)
+    coat = fc * env_coat(rc, upn, key, fill)
     rb = 2 * dot(n_metal, v) * n_metal - v
     path = hgt * 2.8 * (0.5 + 0.5 / np.maximum(ncv, 0.25))
     trans = np.exp(-SIGMA * path)
-    base = 0.9 * env_metal(rb, upn, key, fill, 0.2, 0.0)
+    base = 0.7 * env_metal(rb, upn, key, fill, 0.1, 0.0)
     pigment = PIGMENT * (0.35 + 0.65 * np.clip(dot(n_coat, key), 0, 1))
     body = (base * trans + pigment) * (1 - fc) * ao
 
@@ -141,7 +143,7 @@ def shade(metal, mat, g, view=None):
     col = col * (1 - 0.45 * t_edge ** 3)
     nb = norm(np.concatenate([n_edge * (t_edge * 1.1), np.ones_like(t_edge)], -1))
     rb2 = 2 * dot(nb, v) * nb - v
-    col = col + t_edge ** 2 * 0.06 * env_coat(rb2, key, fill)
+    col = col + t_edge ** 2 * 0.25 * env_coat(rb2, upn, key, fill)
     col = 1 - np.exp(-col * 1.2)
     return np.clip(col, 0, 1) ** (1 / 1.15)
 

@@ -197,7 +197,7 @@ enum Lighting {
         let fill: SIMD3<Double>
     }
 
-    static let gold = SIMD3<Double>(1.00, 0.65, 0.32)
+    static let gold = SIMD3<Double>(1.00, 0.80, 0.55)   // champagne rose gold, as in the shader
 
     /// Same lights as the shader: "up" is opposite to gravity; screen y points down.
     static func lights(_ g: SIMD3<Double>) -> Lights {
@@ -213,7 +213,7 @@ enum Lighting {
     }
 
     /// Polished rose gold seen straight on, for a surface with this normal (envMetal in WorldDial.fsh).
-    static func metalColor(normal n: SIMD3<Double>, lights: Lights, boost: Double = 1.25) -> Color {
+    static func metalColor(normal n: SIMD3<Double>, lights: Lights, boost: Double = 1.4) -> Color {
         let v = SIMD3<Double>(0, 0, 1)
         let nov = max(simd_dot(n, v), 0.001)
         let r = 2 * nov * n - v
@@ -222,7 +222,7 @@ enum Lighting {
         let room = (0.03 + t * t) * viewer
         let k = min(max(simd_dot(r, lights.key), 0), 1)
         let f = min(max(simd_dot(r, lights.fill), 0), 1)
-        let e = 8 + (1 - 0.25) * 70.0
+        let e = 8 + (1 - 0.1) * 70.0   // polished hands: sharper than the satin relief
         let env = room + 1.6 * pow(k, e) + 4 * pow(k, e * 5) + 1.1 * pow(f, e * 0.7)
         let fres = gold + (SIMD3<Double>(repeating: 1) - gold) * pow(1 - nov, 5)
         let c = fres * env * boost
