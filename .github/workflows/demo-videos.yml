@@ -22,9 +22,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd build/demo || exit 0
-          for d in *-frames; do if [ -d "$d" ]; then tar czf "$d.tgz" "$d"; fi; done
+          shopt -s nullglob
+          for d in *-frames; do tar czf "$d.tgz" "$d"; done
           tag="demo-videos-${GITHUB_RUN_NUMBER}"
-          files=$(ls *.mp4 *.png *.tgz *.txt *.log 2>/dev/null)
-          [ -n "$files" ] || exit 0
-          gh release create "$tag" $files --target "$GITHUB_SHA" --prerelease --title "TiltFace demo videos ${GITHUB_RUN_NUMBER}" \
+          files=(*.mp4 *.png *.tgz *.txt *.log)
+          [ ${#files[@]} -gt 0 ] || exit 0
+          gh release create "$tag" "${files[@]}" --target "$GITHUB_SHA" --prerelease --title "TiltFace demo videos ${GITHUB_RUN_NUMBER}" \
             --notes "Screen recordings from the watchOS Simulator (scripted demo motion), commit ${GITHUB_SHA::7}."
