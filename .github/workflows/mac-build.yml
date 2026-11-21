@@ -1,9 +1,9 @@
 # Fallback Mac build on a GitHub-hosted macOS runner (counts 10x against the free Actions minutes; one build is ~5 runner minutes).
-# Started by pushing a tag `mac-build-*`; publishes the unsigned IPA as a pre-release of that tag. The usual path is Codemagic (build.yml).
+# Started by pushing the branch `mac-build`; publishes the unsigned IPA as a pre-release tagged mac-build-<run number>. The usual path is Codemagic (build.yml).
 name: Mac build (GitHub-hosted)
 on:
   push:
-    tags: ['mac-build-*']
+    branches: [mac-build]
 permissions:
   contents: write
 jobs:
@@ -22,7 +22,8 @@ jobs:
         run: |
           ipa=$(ls build/*/TiltFace-unsigned.ipa | head -1)
           report=$(dirname "$ipa")/build-report.json
-          cp "$ipa" "TiltFace-${GITHUB_REF_NAME}-${GITHUB_SHA::7}-unsigned.ipa"
-          gh release create "$GITHUB_REF_NAME" "TiltFace-${GITHUB_REF_NAME}-${GITHUB_SHA::7}-unsigned.ipa" "$report" \
-            --prerelease --title "TiltFace ${GITHUB_REF_NAME}" \
+          tag="mac-build-${GITHUB_RUN_NUMBER}"
+          cp "$ipa" "TiltFace-${tag}-${GITHUB_SHA::7}-unsigned.ipa"
+          gh release create "$tag" "TiltFace-${tag}-${GITHUB_SHA::7}-unsigned.ipa" "$report" \
+            --target "$GITHUB_SHA" --prerelease --title "TiltFace ${tag}" \
             --notes "Unsigned: sign and install with Sideloadly on the iPhone paired with the watch. Built on GitHub's macOS runner from ${GITHUB_SHA::7}."
