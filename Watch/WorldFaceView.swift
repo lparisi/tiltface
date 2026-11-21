@@ -155,7 +155,7 @@ private struct CenterCap: View {
         ZStack {
             Circle()
                 .fill(RadialGradient(
-                    colors: [Lighting.metalColor(normal: SIMD3(0, 0, 1), lights: lights, boost: 1.3),
+                    colors: [Lighting.metalColor(normal: SIMD3(0, 0, 1), lights: lights, boost: 1.6),
                              Lighting.metalColor(normal: simd_normalize(SIMD3(-k.x, -k.y, 0.4)), lights: lights)],
                     center: UnitPoint(x: 0.5 + hx * 0.5, y: 0.5 + hy * 0.5),
                     startRadius: 0, endRadius: radius * 2))
@@ -213,12 +213,12 @@ enum Lighting {
     }
 
     /// Polished rose gold seen straight on, for a surface with this normal (envMetal in WorldDial.fsh).
-    static func metalColor(normal n: SIMD3<Double>, lights: Lights, boost: Double = 1) -> Color {
+    static func metalColor(normal n: SIMD3<Double>, lights: Lights, boost: Double = 1.25) -> Color {
         let v = SIMD3<Double>(0, 0, 1)
         let nov = max(simd_dot(n, v), 0.001)
         let r = 2 * nov * n - v
         let t = smooth(-0.3, 0.9, simd_dot(r, lights.up))
-        let viewer = 1 - 0.55 * smooth(0.86, 0.99, r.z)
+        let viewer = 1 - 0.2 * smooth(0.86, 0.99, r.z)   // hands sit higher: less of the viewer in them
         let room = (0.03 + t * t) * viewer
         let k = min(max(simd_dot(r, lights.key), 0), 1)
         let f = min(max(simd_dot(r, lights.fill), 0), 1)

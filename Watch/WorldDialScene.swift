@@ -9,7 +9,7 @@ final class WorldDialScene: SKScene {
     /// When set, the lights stay put (Always On / dimmed screen).
     var frozen = false
 
-    private let dial = SKSpriteNode(color: .black, size: WorldDialScene.texSize)
+    private var dial = SKSpriteNode(color: .black, size: WorldDialScene.texSize)
     private let gravityUniform = SKUniform(name: "u_gravity", vectorFloat3: vector_float3(0, -0.5, -0.866))
     private let viewUniform = SKUniform(name: "u_view", vectorFloat2: vector_float2(432, 528))
     private var built = false
@@ -34,6 +34,9 @@ final class WorldDialScene: SKScene {
         let mat = SKTexture(imageNamed: "world_mat")
         metal.filteringMode = .linear
         mat.filteringMode = .linear
+        // A textured sprite guarantees v_tex_coord; if the shader ever fails, the raw map shows instead of black.
+        dial = SKSpriteNode(texture: metal, size: Self.texSize)
+        NSLog("WorldDial: textures %@ %@", "\(metal.size())", "\(mat.size())")
 
         let shader = SKShader(fileNamed: "WorldDial.fsh")
         shader.uniforms = [
@@ -51,6 +54,7 @@ final class WorldDialScene: SKScene {
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
+        build()
         layoutDial()
     }
 
@@ -62,6 +66,7 @@ final class WorldDialScene: SKScene {
     }
 
     override func update(_ currentTime: TimeInterval) {
+        build()
         let g = frozen ? MotionHub.restingPose : MotionHub.shared.gravity()
         let n = simd_normalize(g)
         gravityUniform.vectorFloat3Value = vector_float3(Float(n.x), Float(n.y), Float(n.z))

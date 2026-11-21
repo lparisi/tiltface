@@ -80,6 +80,9 @@ def build_app(work):
 
 def record(udid, face, seconds):
     video = OUT / f'{face}.mp4'
+    applog = open(OUT / f'{face}-app-log.txt', 'w')
+    logger = subprocess.Popen(['xcrun', 'simctl', 'spawn', udid, 'log', 'stream', '--level', 'debug', '--style', 'compact',
+                               '--predicate', 'process == "TiltFaceWatch"'], stdout=applog, stderr=subprocess.STDOUT)
     rec = subprocess.Popen(['xcrun', 'simctl', 'io', udid, 'recordVideo', '--codec=h264', '--force', str(video)],
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     time.sleep(2.0)
@@ -113,6 +116,8 @@ def record(udid, face, seconds):
         log(f'{face}: {i} frames in {seconds}s')
     subprocess.run(['xcrun', 'simctl', 'terminate', udid, BUNDLE], capture_output=True)
     time.sleep(1.0)
+    logger.terminate()
+    applog.close()
 
 
 def main():
