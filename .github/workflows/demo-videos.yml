@@ -22,7 +22,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd build/demo || exit 0
-          for d in *-frames; do [ -d "$d" ] && tar czf "$d.tgz" "$d"; done
+          for d in *-frames; do if [ -d "$d" ]; then tar czf "$d.tgz" "$d"; fi; done
           tag="demo-videos-${GITHUB_RUN_NUMBER}"
           files=$(ls *.mp4 *.png *.tgz *.txt *.log 2>/dev/null)
           [ -n "$files" ] || exit 0

@@ -12,7 +12,7 @@
 // base. Light passes through the coloured lacquer twice, so the blue deepens with thickness and viewing angle
 // (Beer–Lambert), and glows where the base reflects a light. Rose gold is a rough metal tinted by its colour.
 
-const vec3 GOLD = vec3(1.00, 0.70, 0.47);
+const vec3 GOLD = vec3(1.00, 0.65, 0.32);
 const vec3 SIGMA = vec3(5.0, 3.1, 0.38);
 const vec3 PIGMENT = vec3(0.010, 0.028, 0.20);
 
@@ -21,13 +21,16 @@ float smoothstep01(float e0, float e1, float x) {
     return t * t * (3.0 - 2.0 * t);
 }
 
-vec3 envMetal(vec3 r, vec3 key, vec3 fill, float rough) {
+// The room as a metal mirrors it: bright ceiling, dark floor, a hot softbox and a window, and a darker zone behind
+// the viewer (straight-on reflections show the person wearing the watch). High contrast is what reads as metal.
+vec3 envMetal(vec3 r, vec3 up, vec3 key, vec3 fill, float rough, float viewerDark) {
+    float t = smoothstep01(-0.3, 0.9, dot(r, up));
+    float viewer = 1.0 - viewerDark * smoothstep01(0.86, 0.99, r.z);
+    float room = (0.03 + 1.0 * t * t) * viewer;
     float k = clamp(dot(r, key), 0.0, 1.0);
     float f = clamp(dot(r, fill), 0.0, 1.0);
-    float e = 6.0 + (1.0 - rough) * 60.0;
-    float v = 0.22 + 0.18 * clamp(r.z, 0.0, 1.0) + 1.0 * pow(k, 5.0) + 3.6 * pow(k, e) + 6.0 * pow(k, e * 6.0)
-            + 0.9 * pow(f, e * 0.5);
-    return vec3(v);
+    float e = 8.0 + (1.0 - rough) * 70.0;
+    return vec3(room + 1.6 * pow(k, e) + 4.0 * pow(k, e * 5.0) + 1.1 * pow(f, e * 0.7));
 }
 
 vec3 envCoat(vec3 r, vec3 key, vec3 fill) {
@@ -99,6 +102,7 @@ void main() {
 
     // Room lights: "up" is opposite to gravity; device y points to 12, screen y points down.
     vec3 up = vec3(-u_gravity.x, u_gravity.y, -u_gravity.z);
+    vec3 upn = normalize(up);
     vec3 key = normalize(up + vec3(-0.30, -0.42, 0.0));
     vec3 fill = normalize(up + vec3(0.95, 0.10, -0.15));
 
@@ -113,7 +117,9 @@ void main() {
     float nov = clamp(dot(nMetal, v), 0.001, 1.0);
     vec3 r = 2.0 * nov * nMetal - v;
     vec3 fres = GOLD + (vec3(1.0) - GOLD) * pow(1.0 - nov, 5.0);
-    vec3 gold = fres * envMetal(r, key, fill, 0.55) * (0.72 + 0.28 * hgt);
+    // Light bouncing between ridges of the relief picks up the gold colour twice (deeper, more saturated).
+    float cavity = clamp(0.55 + 0.6 * hgt, 0.0, 1.0);
+    vec3 gold = fres * envMetal(r, upn, key, fill, 0.45, 0.55) * (vec3(cavity) + (1.0 - cavity) * GOLD);
 
     // Blue lacquer
     float ncv = clamp(dot(nCoat, v), 0.001, 1.0);
@@ -124,7 +130,7 @@ void main() {
     float thick = hgt * 2.8;
     float path = thick * (0.5 + 0.5 / max(ncv, 0.25));
     vec3 trans = exp(-SIGMA * path);
-    vec3 base = 0.9 * envMetal(rb, key, fill, 0.2);
+    vec3 base = 0.9 * envMetal(rb, upn, key, fill, 0.2, 0.0);
     vec3 pigment = PIGMENT * (0.35 + 0.65 * clamp(dot(nCoat, key), 0.0, 1.0));
     vec3 body = (base * trans + pigment) * (1.0 - fc) * ao;
 

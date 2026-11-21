@@ -193,6 +193,20 @@ def main(geojson, out_dir):
 
     gy, gx = np.gradient(ndimage.gaussian_filter(metal_h, 0.6))
     n_metal = np.stack([-gx, -gy, np.ones_like(gx)], -1)
+
+    # Hammered / stamped facets: small flat planes with their own tilt. Polished gold reads as gold because each
+    # facet either mirrors a light (flash) or the dark room (deep brown) — not a smooth matte gradient.
+    def facets(n_points, seed, amount):
+        r = np.random.default_rng(seed)
+        pts = r.random((n_points, 2)) * np.array(shape)
+        yy2, xx2 = np.mgrid[0: shape[0], 0: shape[1]]
+        _, idx = cKDTree(pts).query(np.stack([yy2.ravel(), xx2.ravel()], 1), k=1)
+        tilt = r.normal(0, amount, (n_points, 2))
+        return tilt[idx].reshape(shape[0], shape[1], 2)
+
+    tilt = facets(9000, 51, 0.20) + facets(40000, 52, 0.07)
+    on_gold = (land * globe * shoulder)[..., None]
+    n_metal[..., 0:2] += tilt * on_gold
     n_metal /= np.linalg.norm(n_metal, axis=-1, keepdims=True)
 
     # --- gold flakes (paillons) suspended in the dark lacquer outside the globe

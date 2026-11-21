@@ -192,28 +192,38 @@ private struct HomeTimeLabel: View {
 
 enum Lighting {
     struct Lights {
+        let up: SIMD3<Double>
         let key: SIMD3<Double>
         let fill: SIMD3<Double>
     }
 
-    static let gold = SIMD3<Double>(1.00, 0.70, 0.47)
+    static let gold = SIMD3<Double>(1.00, 0.65, 0.32)
 
     /// Same lights as the shader: "up" is opposite to gravity; screen y points down.
     static func lights(_ g: SIMD3<Double>) -> Lights {
         let up = SIMD3(-g.x, g.y, -g.z)
-        return Lights(key: simd_normalize(up + SIMD3(-0.30, -0.42, 0)),
+        return Lights(up: simd_normalize(up),
+                      key: simd_normalize(up + SIMD3(-0.30, -0.42, 0)),
                       fill: simd_normalize(up + SIMD3(0.95, 0.10, -0.15)))
     }
 
-    /// Polished rose gold seen straight on, for a surface with this normal.
+    private static func smooth(_ e0: Double, _ e1: Double, _ x: Double) -> Double {
+        let t = min(max((x - e0) / (e1 - e0), 0), 1)
+        return t * t * (3 - 2 * t)
+    }
+
+    /// Polished rose gold seen straight on, for a surface with this normal (envMetal in WorldDial.fsh).
     static func metalColor(normal n: SIMD3<Double>, lights: Lights, boost: Double = 1) -> Color {
         let v = SIMD3<Double>(0, 0, 1)
         let nov = max(simd_dot(n, v), 0.001)
         let r = 2 * nov * n - v
+        let t = smooth(-0.3, 0.9, simd_dot(r, lights.up))
+        let viewer = 1 - 0.55 * smooth(0.86, 0.99, r.z)
+        let room = (0.03 + t * t) * viewer
         let k = min(max(simd_dot(r, lights.key), 0), 1)
         let f = min(max(simd_dot(r, lights.fill), 0), 1)
-        let e = 6 + (1 - 0.25) * 60.0
-        let env = 0.22 + 0.18 * max(r.z, 0) + pow(k, 5) + 3.6 * pow(k, e) + 6 * pow(k, e * 6) + 0.9 * pow(f, e * 0.5)
+        let e = 8 + (1 - 0.25) * 70.0
+        let env = room + 1.6 * pow(k, e) + 4 * pow(k, e * 5) + 1.1 * pow(f, e * 0.7)
         let fres = gold + (SIMD3<Double>(repeating: 1) - gold) * pow(1 - nov, 5)
         let c = fres * env * boost
         func tone(_ x: Double) -> Double { pow(min(max(1 - exp(-x * 1.2), 0), 1), 1 / 1.15) }
