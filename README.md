@@ -4,6 +4,27 @@ A watchOS app that looks like a watch face: 40 physics pieces (tennis balls, gol
 
 SwiftUI + SpriteKit (`SpriteView`), CoreMotion `deviceMotion` at 60 Hz mapped to `physicsWorld.gravity`.
 
+## Faces
+
+Swipe up/down (or turn the Digital Crown) to switch. Long-press either face for its settings.
+
+1. **Physics**: 40 pieces (tennis balls, gold bars, diamonds or basketballs) roll downhill as you tilt; tap to shake.
+2. **World**: a domed globe of stamped, hammered rose gold under hand-applied-style blue lacquer, with an applied XII and indices,
+   faceted dauphine hands, and a second time zone (long-press to choose the city). The dial is a SpriteKit fragment shader
+   (`Watch/Dial/WorldDial.fsh`) lit by the room around your wrist: the lights move as you tilt. Gold is a rough metal mirroring a
+   high-contrast room. The lacquer is a glossy clear surface over a bright metal base, with the blue deepening with thickness
+   (Beer–Lambert). A domed-crystal lens magnifies the dial near the bezel.
+   Textures are baked by `tools/textures/gen_world_dial.py` from Natural Earth land data (public domain); `tools/textures/preview_shader.py`
+   is a CPU copy of the shader for tuning the look offline.
+
+SpriteKit translates the shader to Metal and rejects file-scope constants and `out` parameters. Shader errors show in the app log as
+`SKShader 'WorldDial.fsh' failed to compile`.
+
+## Demo videos
+
+Push the branch `demo-videos`: `.github/workflows/demo-videos.yml` builds for the watchOS Simulator on a GitHub macOS runner, runs each face
+with scripted wrist motion (`-demoFace physics|world`), records the screen and publishes a pre-release with the videos and app logs.
+
 ## Build: no Mac needed
 
 The pipeline mirrors partikel-capture's:
@@ -39,7 +60,7 @@ Free Apple ID: signing lasts 7 days, and the host and watch app each use an App 
 
 | Path | What |
 |---|---|
-| `Watch/` | The watch app: `BallScene` (physics + motion), `ContentView` (SpriteView, gestures), `FaceOverlay` (time/date), `SpriteStyle` + `SpriteArtwork` (4 sprite sets drawn in code, physics shapes), `SettingsView` |
+| `Watch/` | The watch app: `RootView` (face paging), `MotionHub` (one CoreMotion reader + demo script), `PhysicsFaceView` + `BallScene`, `WorldFaceView` + `WorldDialScene` + `Dial/` (shader and baked textures), `SpriteStyle` + `SpriteArtwork`, settings |
 | `iOS/` | Minimal iPhone host that carries the watch app |
 | `WatchInfo.plist` | `WKApplication`, companion bundle ID, runs independently |
 | `project.yml` | XcodeGen spec (two targets, watch app embedded in `Watch/`) |
