@@ -12,9 +12,7 @@
 // base. Light passes through the coloured lacquer twice, so the blue deepens with thickness and viewing angle
 // (Beer–Lambert), and glows where the base reflects a light. Rose gold is a rough metal tinted by its colour.
 
-const vec3 GOLD = vec3(1.00, 0.65, 0.32);
-const vec3 SIGMA = vec3(5.0, 3.1, 0.38);
-const vec3 PIGMENT = vec3(0.010, 0.028, 0.20);
+// Note: SpriteKit's GLSL-to-Metal translation rejects file-scope constants and `out` parameters; keep both out.
 
 float smoothstep01(float e0, float e1, float x) {
     float t = clamp((x - e0) / (e1 - e0), 0.0, 1.0);
@@ -51,34 +49,26 @@ vec3 decodeNormal(vec2 enc) {
 vec3 toSRGB(vec3 c) { return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)); }
 vec3 toLinear(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }
 
-// Domed sapphire crystal: near the bezel the dial is seen magnified, pulled inward. Returns the edge factor t (0..1)
-// and writes the distorted sample position and the outward edge normal.
-float crystal(vec2 screen, out vec2 px, out vec2 nEdge) {
-    vec2 c = screen - u_tex * 0.5;
-    vec2 halfSize = u_view * 0.5;
-    float rad = 0.2 * min(u_view.x, u_view.y);
-    vec2 q = abs(c) - halfSize + rad;
-    float d = -(length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - rad);
-    vec2 sgn = vec2(c.x < 0.0 ? -1.0 : 1.0, c.y < 0.0 ? -1.0 : 1.0);
-    if (q.x > 0.0 && q.y > 0.0) {
-        nEdge = normalize(q) * sgn;
-    } else if (q.x > q.y) {
-        nEdge = vec2(sgn.x, 0.0);
-    } else {
-        nEdge = vec2(0.0, sgn.y);
-    }
-    float band = 0.10 * min(u_view.x, u_view.y);
-    float t = clamp(1.0 - d / band, 0.0, 1.0);
-    px = screen - nEdge * band * 0.30 * t * t * t;
-    return t;
-}
-
 void main() {
     // SpriteKit texture coordinates start bottom-left; the maps are authored top-down.
+    vec3 GOLD = vec3(1.00, 0.65, 0.32);       // rose-yellow gold reflectance
+    vec3 SIGMA = vec3(5.0, 3.1, 0.38);        // blue lacquer absorption per unit thickness
+    vec3 PIGMENT = vec3(0.010, 0.028, 0.20);  // light scattered back by the blue pigment
+
     vec2 screen = vec2(v_tex_coord.x, 1.0 - v_tex_coord.y) * u_tex;
-    vec2 px;
-    vec2 nEdge;
-    float tEdge = crystal(screen, px, nEdge);
+
+    // Domed sapphire crystal: near the bezel the dial is seen magnified, pulled inward.
+    vec2 cs = screen - u_tex * 0.5;
+    vec2 halfSize = u_view * 0.5;
+    float rad = 0.2 * min(u_view.x, u_view.y);
+    vec2 qe = abs(cs) - halfSize + rad;
+    float dEdge = -(length(max(qe, vec2(0.0))) + min(max(qe.x, qe.y), 0.0) - rad);
+    vec2 sgn = vec2(cs.x < 0.0 ? -1.0 : 1.0, cs.y < 0.0 ? -1.0 : 1.0);
+    vec2 nEdge = qe.x > qe.y ? vec2(sgn.x, 0.0) : vec2(0.0, sgn.y);
+    if (qe.x > 0.0 && qe.y > 0.0) { nEdge = normalize(qe) * sgn; }
+    float band = 0.10 * min(u_view.x, u_view.y);
+    float tEdge = clamp(1.0 - dEdge / band, 0.0, 1.0);
+    vec2 px = screen - nEdge * band * 0.30 * tEdge * tEdge * tEdge;
     vec2 uv = vec2(px.x / u_tex.x, 1.0 - px.y / u_tex.y);
 
     // Calibration: texel (0,0) is 128/255. If it reads ~0.22 the upload was linearised.

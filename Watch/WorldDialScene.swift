@@ -28,7 +28,6 @@ final class WorldDialScene: SKScene {
         guard !built else { return }
         built = true
         backgroundColor = .black
-        anchorPoint = CGPoint(x: 0.5, y: 0.5)
 
         let metal = SKTexture(imageNamed: "world_metal")
         let mat = SKTexture(imageNamed: "world_mat")
@@ -47,7 +46,6 @@ final class WorldDialScene: SKScene {
             viewUniform,
         ]
         dial.shader = shader
-        dial.position = .zero
         addChild(dial)
         layoutDial()
     }
@@ -62,6 +60,7 @@ final class WorldDialScene: SKScene {
         guard size.width > 0, size.height > 0 else { return }
         let s = Self.scale(for: size)
         dial.size = CGSize(width: Self.texSize.width * s, height: Self.texSize.height * s)
+        dial.position = CGPoint(x: size.width / 2, y: size.height / 2)
         viewUniform.vectorFloat2Value = vector_float2(Float(size.width / s), Float(size.height / s))
     }
 
