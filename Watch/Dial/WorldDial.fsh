@@ -1,7 +1,7 @@
 // World face dial: stamped rose-gold relief and blue lacquer, reflecting a real photographic environment
 // that turns with the wrist. SpriteKit fragment shader (GLSL ES, translated to Metal by SpriteKit).
 // Keep in step with tools/textures/preview_shader.py (CPU reference used to tune the look).
-// SpriteKit's translation rejects file-scope constants and `out` parameters: keep both out of this file.
+// SpriteKit's translation rejects file-scope constants and `out` parameters, and uniforms are only visible in main.
 //
 // Uniforms
 //   u_metal, u_metal_dof   RG metal normal xy, B relief height (gold) / lacquer thickness / 2.8 (sharp, blurred)
@@ -24,15 +24,19 @@ vec3 decodeNormal(vec2 enc) {
     return normalize(vec3(n, sqrt(clamp(1.0 - dot(n, n), 0.05, 1.0))));
 }
 
-// Environment radiance in direction r. level 0 sharp, 1 satin, 2 soft. U/F/Rt: the room's up, forward and right.
-vec3 envLookup(vec3 r, float level, vec3 U, vec3 F, vec3 Rt, float lin) {
+// Where direction r lands in the stacked environment map. level 0 sharp, 1 satin, 2 soft.
+// U/F/Rt: the room's up, forward and right. (Uniforms are only visible in main, so the read happens there.)
+vec2 envUV(vec3 r, float level, vec3 U, vec3 F, vec3 Rt) {
     float x = dot(r, Rt);
     float y = dot(r, U);
     float z = dot(r, F);
     float u = fract(atan(x, z) / 6.2831853 + 0.5 + 0.10);
     float v = clamp(acos(clamp(y, -1.0, 1.0)) / 3.1415927, 0.5 / 128.0, 1.0 - 0.5 / 128.0);
-    vec2 uv = vec2(u, 1.0 - (level + v) / 3.0);
-    vec3 c = texture2D(u_env, uv).rgb;
+    return vec2(u, 1.0 - (level + v) / 3.0);
+}
+
+// Log-encoded texel -> radiance.
+vec3 envDecode(vec3 c, float lin) {
     if (lin > 0.5) { c = toSRGB(c); }
     return exp2(c * 8.0056) - vec3(1.0);       // log2(1 + 256)
 }
@@ -100,19 +104,19 @@ void main() {
     vec3 r = 2.0 * nov * nMetal - v;
     vec3 fres = GOLD + (vec3(1.0) - GOLD) * pow(1.0 - nov, 5.0);
     float cavity = clamp(0.75 + 0.5 * hgt, 0.0, 1.0);
-    vec3 refl = envLookup(r, 1.0, U, F, Rt, lin) * 0.78 + envLookup(r, 0.0, U, F, Rt, lin) * 0.22;
+    vec3 refl = envDecode(texture2D(u_env, envUV(r, 1.0, U, F, Rt)).rgb, lin) * 0.78 + envDecode(texture2D(u_env, envUV(r, 0.0, U, F, Rt)).rgb, lin) * 0.22;
     vec3 gold = fres * refl * (vec3(cavity) + (1.0 - cavity) * GOLD) * 1.1;
 
     // Blue lacquer: glassy surface over a bright metal base; light is coloured by absorption on the way through.
     float ncv = clamp(dot(nCoat, v), 0.001, 1.0);
     vec3 rc = 2.0 * ncv * nCoat - v;
     float fc = 0.04 + 0.96 * pow(1.0 - ncv, 5.0);
-    vec3 coat = fc * mix(envLookup(rc, 0.0, U, F, Rt, lin), envLookup(rc, 1.0, U, F, Rt, lin), 0.7 * dof);
+    vec3 coat = fc * mix(envDecode(texture2D(u_env, envUV(rc, 0.0, U, F, Rt)).rgb, lin), envDecode(texture2D(u_env, envUV(rc, 1.0, U, F, Rt)).rgb, lin), 0.7 * dof);
     vec3 rb = 2.0 * dot(nMetal, v) * nMetal - v;
     float path = hgt * 2.8 * (0.5 + 0.5 / max(ncv, 0.25));
     vec3 trans = exp(-SIGMA * path);
-    vec3 base = 0.75 * envLookup(rb, 2.0, U, F, Rt, lin);
-    vec3 amb = envLookup(nCoat, 2.0, U, F, Rt, lin);
+    vec3 base = 0.75 * envDecode(texture2D(u_env, envUV(rb, 2.0, U, F, Rt)).rgb, lin);
+    vec3 amb = envDecode(texture2D(u_env, envUV(nCoat, 2.0, U, F, Rt)).rgb, lin);
     vec3 pigment = PIGMENT * (0.4 + 0.6 * clamp(dot(amb, vec3(1.0 / 3.0)), 0.0, 3.0));
     vec3 body = (base * trans + pigment) * (1.0 - fc) * ao;
 
@@ -122,7 +126,7 @@ void main() {
     col *= 1.0 - 0.45 * tEdge * tEdge * tEdge;
     vec3 nb = normalize(vec3(nEdge * (tEdge * 1.1), 1.0));
     vec3 rb2 = 2.0 * dot(nb, v) * nb - v;
-    col += tEdge * tEdge * 0.08 * envLookup(rb2, 0.0, U, F, Rt, lin);
+    col += tEdge * tEdge * 0.08 * envDecode(texture2D(u_env, envUV(rb2, 0.0, U, F, Rt)).rgb, lin);
 
     col = vec3(1.0) - exp(-col * 1.3);
     col = pow(clamp(col, 0.0, 1.0), vec3(1.0 / 1.15));
