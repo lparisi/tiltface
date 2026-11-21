@@ -40,7 +40,12 @@ targets:
   TiltFaceWatch:
     type: application
     platform: watchOS
-    sources: [Watch]
+    sources:
+      - path: Watch
+        excludes: ["Dial/*.fsh"]
+      # SpriteKit loads the fragment shader source at run time (SKShader(fileNamed:)), so ship it as a resource.
+      - path: Watch/Dial/WorldDial.fsh
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: digital.svrn.tiltface.watchkitapp

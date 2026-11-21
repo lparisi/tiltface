@@ -1,0 +1,30 @@
+# Records both faces in the watchOS Simulator on a GitHub-hosted macOS runner and publishes the videos as a pre-release.
+# Started by pushing the branch `demo-videos`. Uses the free Actions minutes (macOS counts 10x).
+name: Demo videos
+on:
+  push:
+    branches: [demo-videos]
+permissions:
+  contents: write
+jobs:
+  record:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Simulators available
+        run: xcrun simctl list runtimes
+      - name: Build for the watch simulator and record both faces
+        run: python3 tools/record_demo.py
+      - name: Publish pre-release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd build/demo || exit 0
+          for d in *-frames; do [ -d "$d" ] && tar czf "$d.tgz" "$d"; done
+          tag="demo-videos-${GITHUB_RUN_NUMBER}"
+          files=$(ls *.mp4 *.png *.tgz *.txt *.log 2>/dev/null)
+          [ -n "$files" ] || exit 0
+          gh release create "$tag" $files --target "$GITHUB_SHA" --prerelease --title "TiltFace demo videos ${GITHUB_RUN_NUMBER}" \
+            --notes "Screen recordings from the watchOS Simulator (scripted demo motion), commit ${GITHUB_SHA::7}."

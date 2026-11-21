@@ -1,19 +1,10 @@
 import SpriteKit
-import CoreMotion
-import WatchKit
 
 /// Physics scene: 40 pieces inside an edge loop, with gravity driven by wrist tilt.
 final class BallScene: SKScene {
     let pieceCount = 40
 
-    /// Manual override in case tilt feels inverted on a given wrist/crown setup.
-    var flipTilt = false
-
-    private let motion = CMMotionManager()
-    private var crownOnLeft = false
-    private var smoothedGravity = CGVector(dx: 0, dy: -1)
     private let gravityStrength: CGFloat = 9.8 * 1.6   // a bit stronger than real life feels snappier
-    private let smoothing: CGFloat = 0.35              // low-pass filter on the sensor
 
     private var style: SpriteStyle = .tennis
     private var texture: SKTexture?
@@ -31,19 +22,6 @@ final class BallScene: SKScene {
         texture = newTexture
         for piece in pieces {
             restyle(piece.node, scale: piece.scale, pop: true)
-        }
-    }
-
-    func startMotion() {
-        crownOnLeft = WKInterfaceDevice.current().crownOrientation == .left
-        guard motion.isDeviceMotionAvailable, !motion.isDeviceMotionActive else { return }
-        motion.deviceMotionUpdateInterval = 1.0 / 60.0   // 60 Hz
-        motion.startDeviceMotionUpdates()                // pulled every frame in update(_:)
-    }
-
-    func stopMotion() {
-        if motion.isDeviceMotionActive {
-            motion.stopDeviceMotionUpdates()
         }
     }
 
@@ -96,19 +74,10 @@ final class BallScene: SKScene {
     // MARK: - Gravity
 
     private func updateGravity() {
-        var target = CGVector(dx: 0, dy: -1)   // simulator / no sensor: plain "down"
-
-        if let gravity = motion.deviceMotion?.gravity {
-            // With the crown on the left the screen is rotated 180°, so flip both axes.
-            let sign: CGFloat = (crownOnLeft != flipTilt) ? -1 : 1
-            target = CGVector(dx: CGFloat(gravity.x) * sign, dy: CGFloat(gravity.y) * sign)
-        }
-
-        smoothedGravity.dx += (target.dx - smoothedGravity.dx) * smoothing
-        smoothedGravity.dy += (target.dy - smoothedGravity.dy) * smoothing
-
-        let newGravity = CGVector(dx: smoothedGravity.dx * gravityStrength,
-                                  dy: smoothedGravity.dy * gravityStrength)
+        // Smoothed by the hub; only the in-plane part of gravity moves the pieces.
+        let g = MotionHub.shared.gravity()
+        let newGravity = CGVector(dx: CGFloat(g.x) * gravityStrength,
+                                  dy: CGFloat(g.y) * gravityStrength)
         let delta = hypot(newGravity.dx - physicsWorld.gravity.dx,
                           newGravity.dy - physicsWorld.gravity.dy)
         physicsWorld.gravity = newGravity
