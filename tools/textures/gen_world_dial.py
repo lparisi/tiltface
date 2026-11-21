@@ -167,9 +167,10 @@ def main(geojson, out_dir):
     # over gentle real terrain, with a short rounded shoulder at the coast. No smooth waves: those read as chrome.
     shoulder = np.clip(d_in / (1.6 * SS), 0, 1)
     shoulder = np.sqrt(shoulder)
-    terrain = ndimage.gaussian_filter(np.clip((earth - 0.25) / 0.75, 0, 1), 1.5 * SS)
+    terrain = ndimage.gaussian_filter(np.clip((earth - 0.25) / 0.75, 0, 1), 0.8 * SS)
+    terrain = np.clip(terrain + 1.2 * (terrain - ndimage.gaussian_filter(terrain, 3 * SS)), 0, 1)   # crisper ridges
     nuggets = ridged(shape, 70, 3, 12)                              # clusters ~3 px across
-    gold_h = (0.30 * shoulder + 0.55 * terrain * shoulder + 0.22 * nuggets * shoulder) * land
+    gold_h = (0.12 * shoulder + 0.80 * terrain * shoulder + 0.10 * nuggets * shoulder) * land
 
     # --- globe rim (half-round raised gold bezel) and applied markers
     r_px = rho * R
@@ -203,11 +204,14 @@ def main(geojson, out_dir):
     # --- height field of the metal (gold relief or base), plus the globe dome
     Rs = R * 1.9                                            # shallow spherical dome
     dome = np.sqrt(np.clip(Rs ** 2 - np.minimum(r_px, R) ** 2, 0, None)) - np.sqrt(Rs ** 2 - R ** 2)
-    relief_scale = 7.0 * SS
+    relief_scale = 13.0 * SS
     metal_h = dome + relief_scale * np.where(gold_mask > 0.5, height_metal, base)
 
     gy, gx = np.gradient(ndimage.gaussian_filter(metal_h, 0.6))
-    n_metal = np.stack([-gx, -gy, np.ones_like(gx)], -1)
+    # Rounded, not cliff-like: cap the slope softly so no facet turns fully toward the dark floor.
+    slope = np.sqrt(gx * gx + gy * gy) + 1e-9
+    cap = 0.55 * np.tanh(slope / 0.55) / slope
+    n_metal = np.stack([-gx * cap, -gy * cap, np.ones_like(gx)], -1)
 
     n_metal /= np.linalg.norm(n_metal, axis=-1, keepdims=True)
 
@@ -244,8 +248,8 @@ def main(geojson, out_dir):
     # room — the fine sparkle of frosted gold. (The depth-of-field copy blurs it away toward the rim, as in a macro shot.)
     gold_final = down(gold_mask * globe + mk + (rim_t > 0)).clip(0, 1)[..., None]
     grain_xy = np.random.default_rng(71).normal(0, 1.0, (H, W, 2))
-    grain_xy = np.stack([ndimage.gaussian_filter(grain_xy[..., i], 0.9) for i in range(2)], -1)
-    grain_xy *= 0.16 / grain_xy.std()                                   # clustered crystals, gentle tilt
+    grain_xy = np.stack([ndimage.gaussian_filter(grain_xy[..., i], 0.7) for i in range(2)], -1)
+    grain_xy *= 0.08 / grain_xy.std()                                   # fine crystals: a sparkle, not a texture
     nm[..., 0:2] += grain_xy * (gold_final > 0.5) * down(np.clip(land * globe, 0, 1))[..., None]
     nm /= np.linalg.norm(nm, axis=-1, keepdims=True)
     metal = np.stack([enc(nm[..., 0]), enc(nm[..., 1]), down(b_chan)], -1)
