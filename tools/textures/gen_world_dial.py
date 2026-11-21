@@ -13,6 +13,8 @@ The lacquer's top surface (a smooth dome over the globe) is computed in the shad
 Texel (0,0) of both files is mid-grey (128): the shader reads it to detect whether the texture was linearised on upload.
 Normals are in screen space: x right, y down, z toward the viewer.
 
+Also writes world_metal_dof.png / world_mat_dof.png (blurred copies for the depth of field).
+
 Usage: python3 tools/textures/gen_world_dial.py <ne_50m_land.geojson> <out_dir>
 """
 import json
@@ -92,7 +94,8 @@ def land_raster(geojson, width=8192):
     return np.asarray(img, dtype=np.float32) / 255
 
 
-def project(land):
+def project():
+    """Orthographic globe: for every generation pixel, where it lands on an equirectangular map (u, v in 0..1)."""
     yy, xx = np.mgrid[0:GH, 0:GW].astype(np.float64)
     x = (xx + 0.5 - CX) / R
     y = -(yy + 0.5 - CY) / R          # y up for the projection
@@ -103,11 +106,15 @@ def project(land):
         lat = np.arcsin(np.cos(c) * np.sin(LAT0) + np.where(rho > 0, y * np.sin(c) * np.cos(LAT0) / rho, 0))
         lon = LON0 + np.arctan2(x * np.sin(c), rho * np.cos(c) * np.cos(LAT0) - y * np.sin(c) * np.sin(LAT0))
     lon = (lon + np.pi) % (2 * np.pi) - np.pi
-    h, w = land.shape
-    u = (np.degrees(lon) + 180) / 360 * w
-    v = (90 - np.degrees(lat)) / 180 * h
-    m = ndimage.map_coordinates(land, [np.nan_to_num(v), np.nan_to_num(u)], order=1, mode='wrap')
-    return np.where(inside, m, 0), inside, rho
+    u = np.nan_to_num((np.degrees(lon) + 180) / 360)
+    v = np.nan_to_num((90 - np.degrees(lat)) / 180)
+    return u, v, inside, rho
+
+
+def sample_equirect(img, u, v, inside):
+    h, w = img.shape
+    m = ndimage.map_coordinates(img, [v * h - 0.5, u * w - 0.5], order=1, mode='wrap')
+    return np.where(inside, m, 0)
 
 
 # ---------------------------------------------------------------- applied markers (rose gold, raised)
@@ -139,7 +146,11 @@ def markers_mask():
 def main(geojson, out_dir):
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    land, globe, rho = project(land_raster(geojson))
+    u, v, globe, rho = project()
+    land = sample_equirect(land_raster(geojson), u, v, globe)
+    # Real relief: NASA-derived Earth normals integrated to height and high-passed (tools/textures/earth_relief.png)
+    relief_src = np.asarray(Image.open(Path(__file__).with_name('earth_relief.png')), dtype=np.float64) / 65535
+    earth = sample_equirect(relief_src, u, v, globe)
     land_bin = land > 0.5
     shape = (GH, GW)
 
@@ -151,12 +162,11 @@ def main(geojson, out_dir):
     # with a thin crisp bevel at the coast. No mid-size blobs: those read as cork / plastic.
     shoulder = np.clip(d_in / (2.2 * SS), 0, 1)
     shoulder = shoulder * shoulder * (3 - 2 * shoulder)
-    terrain = ridged(shape, 5, 5, 11)
-    terrain = np.clip((terrain - 0.30) / 0.70, 0, 1) ** 1.3
-    folds = ridged(shape, 22, 3, 12) * 0.35                     # creases of the stamping, softer than the ranges
-    inland = np.clip(d_in / (10 * SS), 0, 1)
+    terrain = np.clip((earth - 0.25) / 0.75, 0, 1) ** 0.9           # real mountain ranges and plateaus
+    folds = ridged(shape, 30, 3, 12) * 0.18                       # creases of the stamping, much softer than the ranges
+    inland = np.clip(d_in / (4 * SS), 0, 1)
     grain = fbm(shape, 260, 2, 9) * 0.06                         # satin grain
-    gold_h = 0.22 * shoulder + (0.55 * terrain + folds) * inland * shoulder + grain * shoulder
+    gold_h = 0.22 * shoulder + (0.75 * terrain + folds) * inland * shoulder + grain * shoulder
     gold_h = gold_h * land
 
     # --- globe rim (half-round raised gold bezel) and applied markers
@@ -243,10 +253,13 @@ def main(geojson, out_dir):
     nm /= np.linalg.norm(nm, axis=-1, keepdims=True)
     metal = np.stack([enc(nm[..., 0]), enc(nm[..., 1]), down(b_chan)], -1)
     mat = np.stack([down(material), np.clip(down(flakes) * 1.8, 0, 1), down(np.clip(ao, 0, 1))], -1)
-    for a in (metal, mat):
+    # Depth of field: blurred copies the shader fades to away from the focus (the centre of the globe).
+    metal_dof = np.stack([ndimage.gaussian_filter(metal[..., i], 2.6) for i in range(3)], -1)
+    mat_dof = np.stack([ndimage.gaussian_filter(mat[..., i], 2.6) for i in range(3)], -1)
+    for name, a in (('world_metal', metal), ('world_mat', mat), ('world_metal_dof', metal_dof), ('world_mat_dof', mat_dof)):
+        a = a.copy()
         a[0, 0, :] = 128 / 255          # calibration texel
-    Image.fromarray((metal * 255 + 0.5).astype(np.uint8), 'RGB').save(out / 'world_metal.png', optimize=True)
-    Image.fromarray((mat * 255 + 0.5).astype(np.uint8), 'RGB').save(out / 'world_mat.png', optimize=True)
+        Image.fromarray((a * 255 + 0.5).astype(np.uint8), 'RGB').save(out / f'{name}.png', optimize=True)
     # Preview of masks for checking the projection
     Image.fromarray((down(material) * 255).astype(np.uint8)).save(out / 'preview_material.png')
     print('ok', metal.shape, 'gold coverage', round(float(down(material).mean()), 3))

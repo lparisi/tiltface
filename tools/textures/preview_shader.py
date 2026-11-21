@@ -1,16 +1,20 @@
 """CPU reference of Watch/Dial/WorldDial.fsh, for tuning the look offline. Keep the math identical to the shader.
 
-Usage: python3 tools/textures/preview_shader.py <dir with world_metal.png + world_mat.png> <out.png> gx gy gz
+Usage: python3 tools/textures/preview_shader.py <dir with the dial textures + world_env.png> <out.png> gx gy gz
 gravity is in the watch's frame (x right, y toward 12 o'clock, z out of the screen), in g.
 """
 import sys
 
 import numpy as np
 from PIL import Image
+from scipy import ndimage
 
-GOLD = np.array([1.00, 0.80, 0.55])        # pale champagne rose gold (5N, satin), display-referred
+GOLD = np.array([1.00, 0.70, 0.36])        # rose gold reflectance (linear): absorbs blue strongly
 SIGMA = np.array([3.4, 4.2, 0.55])         # ultramarine lacquer: absorbs green most, a little red passes (violet cast)
-PIGMENT = np.array([0.030, 0.018, 0.21])   # light scattered back by the pigment (violet-blue)
+PIGMENT = np.array([0.030, 0.018, 0.21])   # light scattered back by the pigment
+ENV_MAX = 256.0
+AZ = 0.10                                  # turns the environment so the low sun sits off to one side
+EXPOSURE = 1.3
 
 
 def norm(v):
@@ -26,29 +30,33 @@ def smooth(e0, e1, x):
     return t * t * (3 - 2 * t)
 
 
-def env_metal(r, up, key, fill, rough, viewer_dark=0.55):
-    """The room as a metal mirrors it: bright ceiling, dark floor, a hot softbox and a window, and a dark zone
-    behind the viewer (straight-on reflections show the person wearing the watch, not a light).
-    High contrast is what makes metal read as metal; rough = blurrier lights."""
-    hgt = dot(r, up)
-    t = smooth(-0.3, 0.9, hgt)
-    viewer = 1 - viewer_dark * smooth(0.86, 0.99, r[..., 2:3])
-    room = (0.03 + 1.0 * t * t) * viewer
-    k = np.clip(dot(r, key), 0, 1)
-    f = np.clip(dot(r, fill), 0, 1)
-    e = 8 + (1 - rough) * 70
-    return room + 1.6 * k ** e + 4.0 * k ** (e * 5) + 1.1 * f ** (e * 0.7)
+def sample(img, px):
+    """Bilinear sample at pixel positions px (x, y), like texture2D with linear filtering and clamping."""
+    return np.stack([ndimage.map_coordinates(img[..., i], [px[..., 1] - 0.5, px[..., 0] - 0.5], order=1, mode='nearest')
+                     for i in range(img.shape[-1])], -1)
 
 
-def env_coat(r, up, key, fill):
-    """What the polished lacquer mirrors: a soft, elongated window (not a disk) and a broad bright ceiling sheen."""
-    side = norm(np.cross(np.broadcast_to(up, r.shape), np.broadcast_to(key, r.shape)) + 1e-9)
-    along = dot(r, side)                       # across the window
-    k = dot(r, key)
-    window = smooth(0.90, 0.97, k + 0.9 * along * along) * smooth(-0.35, -0.2, -np.abs(along)) * 2.2
-    sheen = 0.25 * smooth(0.2, 0.95, dot(r, up))
-    room = 0.04
-    return window + sheen + room
+class Env:
+    def __init__(self, img, up):
+        self.img = img                                  # (384, 256, 3) log-encoded, three stacked levels
+        U = up
+        z = np.array([0.0, 0.0, 1.0])
+        F = z - U * np.dot(U, z)
+        if np.linalg.norm(F) < 0.15:                    # watch flat, face up: use 12 o'clock as "forward"
+            F = F + 0.2 * (np.array([0.0, -1.0, 0.0]) - U * np.dot(U, np.array([0.0, -1.0, 0.0])))
+        self.U, self.F = U, F / np.linalg.norm(F)
+        self.Rt = np.cross(self.U, self.F)
+
+    def __call__(self, r, level):
+        x = dot(r, self.Rt)
+        y = dot(r, self.U)
+        z = dot(r, self.F)
+        u = (np.arctan2(x, z) / (2 * np.pi) + 0.5 + AZ) % 1.0
+        v = np.arccos(np.clip(y, -1, 1)) / np.pi
+        v = np.clip(v, 0.5 / 128, 1 - 0.5 / 128)
+        px = np.concatenate([u * 256, (level + v) * 128], -1)
+        c = sample(self.img, px)
+        return np.exp2(c * np.log2(1 + ENV_MAX)) - 1
 
 
 def decode(enc):
@@ -56,102 +64,90 @@ def decode(enc):
     return norm(np.concatenate([n, np.sqrt(np.clip(1 - np.sum(n * n, -1, keepdims=True), 0.05, 1))], -1))
 
 
-def sample(img, px):
-    """Bilinear sample of an (h, w, c) image at pixel positions px (x, y), like texture2D with linear filtering."""
-    from scipy import ndimage
-    return np.stack([ndimage.map_coordinates(img[..., i], [px[..., 1] - 0.5, px[..., 0] - 0.5], order=1, mode='nearest')
-                     for i in range(img.shape[-1])], -1)
-
-
-def lens(px, view, tex):
-    """Domed sapphire crystal: near the bezel the dial is seen magnified and pulled inward.
-    Returns (distorted sample position, edge factor t in 0..1, outward edge normal)."""
-    c = px - tex * 0.5
-    half = view * 0.5
-    rad = 0.2 * view.min()
-    q = np.abs(c) - half + rad
-    outside = np.linalg.norm(np.maximum(q, 0), axis=-1, keepdims=True)
-    d = -(outside + np.minimum(np.max(q, -1, keepdims=True), 0) - rad)       # distance inside the edge
-    sgn = np.sign(c) + (c == 0)
-    corner = (q[..., 0:1] > 0) & (q[..., 1:2] > 0)
-    n_corner = np.maximum(q, 1e-6) / np.maximum(np.linalg.norm(np.maximum(q, 1e-6), axis=-1, keepdims=True), 1e-6) * sgn
-    n_side = np.where(q[..., 0:1] > q[..., 1:2], np.concatenate([sgn[..., 0:1], 0 * sgn[..., 1:2]], -1),
-                      np.concatenate([0 * sgn[..., 0:1], sgn[..., 1:2]], -1))
-    n_edge = np.where(corner, n_corner, n_side)
-    band = 0.10 * view.min()
-    t = np.clip(1 - d / band, 0, 1)
-    pull = band * 0.30 * t * t * t
-    return px - n_edge * pull, t, n_edge
-
-
-def shade(metal, mat, g, view=None):
-    h, w = metal.shape[:2]
+def shade(t, g):
+    metal_s, mat_s, metal_b, mat_b, env_img = t
+    h, w = metal_s.shape[:2]
     tex = np.array([w, h], dtype=np.float64)
-    view = tex if view is None else view
+    view = tex
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float64) + 0.5
     screen = np.stack([xx, yy], -1)
-    px, t_edge, n_edge = lens(screen, view, tex)
-    metal = sample(metal, px)
-    mat = sample(mat, px)
+
+    # Domed sapphire crystal near the bezel
+    cs = screen - tex * 0.5
+    rad = 0.2 * view.min()
+    qe = np.abs(cs) - view * 0.5 + rad
+    d_edge = -(np.linalg.norm(np.maximum(qe, 0), axis=-1, keepdims=True) + np.minimum(np.max(qe, -1, keepdims=True), 0) - rad)
+    sgn = np.where(cs < 0, -1.0, 1.0)
+    n_edge = np.where(qe[..., 0:1] > qe[..., 1:2], np.concatenate([sgn[..., 0:1], 0 * sgn[..., 1:2]], -1),
+                      np.concatenate([0 * sgn[..., 0:1], sgn[..., 1:2]], -1))
+    corner = (qe[..., 0:1] > 0) & (qe[..., 1:2] > 0)
+    n_edge = np.where(corner, norm(np.maximum(qe, 1e-6)) * sgn, n_edge)
+    band = 0.10 * view.min()
+    t_edge = np.clip(1 - d_edge / band, 0, 1)
+    px = screen - n_edge * band * 0.30 * t_edge ** 3
+
+    # Depth of field: sharp at the centre of the globe, soft toward the rim and the bezel
+    c = px - tex * 0.5
+    R = 0.43 * w
+    lc = np.linalg.norm(c, axis=-1, keepdims=True)
+    dof = np.clip(smooth(0.75, 1.25, lc / R) * 0.55 + t_edge, 0, 1)
+    m = sample(metal_s, px) * (1 - dof) + sample(metal_b, px) * dof
+    q = sample(mat_s, px) * (1 - dof) + sample(mat_b, px) * dof
+
     p = np.concatenate([px, np.zeros((h, w, 1))], -1)
     eye = np.array([w / 2, h / 2, 2.4 * w])
     v = norm(eye - p)
     up = np.array([-g[0], g[1], -g[2]])
-    upn = norm(up)
-    key = norm(up + np.array([-0.30, -0.42, 0.0]))
-    fill = norm(up + np.array([0.95, 0.10, -0.15]))
+    upn = up / np.linalg.norm(up)
+    env = Env(env_img, upn)
 
-    n_metal = decode(metal[..., 0:2])
-    hgt = metal[..., 2:3]
-    gold_m, flake, ao = mat[..., 0:1], mat[..., 1:2], mat[..., 2:3]
+    n_metal = decode(m[..., 0:2])
+    hgt = m[..., 2:3]
+    gold_m, flake, ao = q[..., 0:1], q[..., 1:2], q[..., 2:3]
 
-    c = px - tex * 0.5
-    R = 0.43 * w
     Rs = R * 1.9
-    lc = np.linalg.norm(c, axis=-1, keepdims=True)
     rr = np.minimum(lc, R)
     dome = norm(np.concatenate([c * (rr / np.maximum(lc, 0.001)), np.sqrt(Rs * Rs - rr * rr)], -1))
     n_coat = np.where(lc < R, dome, np.array([0.0, 0.0, 1.0]))
 
+    # Rose gold: satin metal mirroring the real environment, tinted by its colour
     nov = np.clip(dot(n_metal, v), 0.001, 1)
     r = 2 * nov * n_metal - v
     fres = GOLD + (1 - GOLD) * (1 - nov) ** 5
-    # Light bouncing between ridges of the relief picks up the gold colour twice (deeper, more saturated).
     cavity = np.clip(0.75 + 0.5 * hgt, 0, 1)
-    gold = 1.18 * fres * env_metal(r, upn, key, fill, 0.2, 0.2) * (cavity + (1 - cavity) * GOLD)
+    refl = env(r, 1) * 0.78 + env(r, 0) * 0.22
+    gold = fres * refl * (cavity + (1 - cavity) * GOLD) * 1.1
 
+    # Blue lacquer: glassy surface over a bright metal base, coloured by absorption
     ncv = np.clip(dot(n_coat, v), 0.001, 1)
     rc = 2 * ncv * n_coat - v
     fc = 0.04 + 0.96 * (1 - ncv) ** 5
-    coat = fc * env_coat(rc, upn, key, fill)
+    coat = fc * (env(rc, 0) * (1 - 0.7 * dof) + env(rc, 1) * 0.7 * dof)
     rb = 2 * dot(n_metal, v) * n_metal - v
     path = hgt * 2.8 * (0.5 + 0.5 / np.maximum(ncv, 0.25))
     trans = np.exp(-SIGMA * path)
-    base = 0.7 * env_metal(rb, upn, key, fill, 0.1, 0.0)
-    pigment = PIGMENT * (0.35 + 0.65 * np.clip(dot(n_coat, key), 0, 1))
+    base = 0.75 * env(rb, 2)
+    amb = env(n_coat, 2)
+    pigment = PIGMENT * (0.4 + 0.6 * np.clip(dot(amb, np.ones(3) / 3), 0, 3))
     body = (base * trans + pigment) * (1 - fc) * ao
 
-    ang = flake * 6.2831 * 7.0
-    nf = norm(np.concatenate([np.cos(ang) * 0.45, np.sin(ang) * 0.45, np.ones_like(ang)], -1))
-    rf = 2 * dot(nf, v) * nf - v
-    glint = GOLD * np.clip(dot(rf, key), 0, 1) ** 90 * 9.0 + GOLD * 0.10
-    body = np.where(flake > 0.02, body * 0.4 + glint, body)
 
     col = gold * gold_m + (body + coat) * (1 - gold_m)
 
-    # Crystal edge: darker toward the bezel, plus the bevel of the sapphire catching the light.
     col = col * (1 - 0.45 * t_edge ** 3)
     nb = norm(np.concatenate([n_edge * (t_edge * 1.1), np.ones_like(t_edge)], -1))
     rb2 = 2 * dot(nb, v) * nb - v
-    col = col + t_edge ** 2 * 0.25 * env_coat(rb2, upn, key, fill)
-    col = 1 - np.exp(-col * 1.2)
+    col = col + t_edge ** 2 * 0.08 * env(rb2, 0)
+    col = 1 - np.exp(-col * EXPOSURE)
     return np.clip(col, 0, 1) ** (1 / 1.15)
 
 
+def load(d):
+    f = lambda n: np.asarray(Image.open(f'{d}/{n}.png').convert('RGB'), dtype=np.float64) / 255
+    return f('world_metal'), f('world_mat'), f('world_metal_dof'), f('world_mat_dof'), f('world_env')
+
+
 if __name__ == '__main__':
-    d = sys.argv[1]
-    metal = np.asarray(Image.open(f'{d}/world_metal.png').convert('RGB'), dtype=np.float64) / 255
-    mat = np.asarray(Image.open(f'{d}/world_mat.png').convert('RGB'), dtype=np.float64) / 255
     g = np.array([float(x) for x in sys.argv[3:6]])
     g = g / np.linalg.norm(g)
-    Image.fromarray((shade(metal, mat, g) * 255).astype(np.uint8)).save(sys.argv[2])
+    Image.fromarray((shade(load(sys.argv[1]), g) * 255).astype(np.uint8)).save(sys.argv[2])

@@ -31,8 +31,10 @@ final class WorldDialScene: SKScene {
 
         let metal = SKTexture(imageNamed: "world_metal")
         let mat = SKTexture(imageNamed: "world_mat")
-        metal.filteringMode = .linear
-        mat.filteringMode = .linear
+        let metalDof = SKTexture(imageNamed: "world_metal_dof")
+        let matDof = SKTexture(imageNamed: "world_mat_dof")
+        let env = SKTexture(imageNamed: "world_env")
+        for t in [metal, mat, metalDof, matDof, env] { t.filteringMode = .linear }
         // A textured sprite guarantees v_tex_coord; if the shader ever fails, the raw map shows instead of black.
         dial = SKSpriteNode(texture: metal, size: Self.texSize)
         NSLog("WorldDial: textures %@ %@", "\(metal.size())", "\(mat.size())")
@@ -41,6 +43,9 @@ final class WorldDialScene: SKScene {
         shader.uniforms = [
             SKUniform(name: "u_metal", texture: metal),
             SKUniform(name: "u_mat", texture: mat),
+            SKUniform(name: "u_metal_dof", texture: metalDof),
+            SKUniform(name: "u_mat_dof", texture: matDof),
+            SKUniform(name: "u_env", texture: env),
             gravityUniform,
             SKUniform(name: "u_tex", vectorFloat2: vector_float2(Float(Self.texSize.width), Float(Self.texSize.height))),
             viewUniform,

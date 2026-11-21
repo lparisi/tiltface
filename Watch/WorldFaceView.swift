@@ -76,7 +76,7 @@ private struct WorldDialOverlay: View {
         let s = WorldDialScene.scale(for: size)
         let R = 0.43 * WorldDialScene.texSize.width * s        // globe radius in points
         let lights = Lighting.lights(gravity)
-        let shadow = CGSize(width: -lights.key.x * 3.2, height: -lights.key.y * 3.2)
+        let shadow = CGSize(width: -lights.up.x * 3.2, height: -lights.up.y * 3.2)
         let parts = Calendar.current.dateComponents([.hour, .minute, .second, .nanosecond], from: date)
         let seconds = Double(parts.second ?? 0) + Double(parts.nanosecond ?? 0) / 1e9
         let minutes = Double(parts.minute ?? 0) + seconds / 60
@@ -148,7 +148,7 @@ private struct CenterCap: View {
     let lights: Lighting.Lights
 
     var body: some View {
-        let k = lights.key
+        let k = lights.up
         let half = simd_normalize(k + SIMD3(0, 0, 1))
         let hx = half.x / max(half.z, 0.3) * 0.7
         let hy = half.y / max(half.z, 0.3) * 0.7
@@ -191,42 +191,38 @@ private struct HomeTimeLabel: View {
 // MARK: - Lighting shared with WorldDial.fsh
 
 enum Lighting {
+    /// The room's frame in screen space: up, forward (toward the viewer, level) and right.
     struct Lights {
         let up: SIMD3<Double>
-        let key: SIMD3<Double>
-        let fill: SIMD3<Double>
+        let key: SIMD3<Double>     // forward
+        let fill: SIMD3<Double>    // right
     }
 
-    static let gold = SIMD3<Double>(1.00, 0.80, 0.55)   // champagne rose gold, as in the shader
+    static let gold = SIMD3<Double>(1.00, 0.70, 0.36)   // rose gold reflectance, as in the shader
 
-    /// Same lights as the shader: "up" is opposite to gravity; screen y points down.
+    /// Same room as the shader: "up" is opposite to gravity; screen y points down.
     static func lights(_ g: SIMD3<Double>) -> Lights {
-        let up = SIMD3(-g.x, g.y, -g.z)
-        return Lights(up: simd_normalize(up),
-                      key: simd_normalize(up + SIMD3(-0.30, -0.42, 0)),
-                      fill: simd_normalize(up + SIMD3(0.95, 0.10, -0.15)))
+        let up = simd_normalize(SIMD3(-g.x, g.y, -g.z))
+        var f = SIMD3<Double>(0, 0, 1) - up * up.z
+        if simd_length(f) < 0.15 {
+            let twelve = SIMD3<Double>(0, -1, 0)
+            f += 0.2 * (twelve - up * simd_dot(up, twelve))
+        }
+        f = simd_normalize(f)
+        return Lights(up: up, key: f, fill: simd_cross(up, f))
     }
 
-    private static func smooth(_ e0: Double, _ e1: Double, _ x: Double) -> Double {
-        let t = min(max((x - e0) / (e1 - e0), 0), 1)
-        return t * t * (3 - 2 * t)
-    }
-
-    /// Polished rose gold seen straight on, for a surface with this normal (envMetal in WorldDial.fsh).
-    static func metalColor(normal n: SIMD3<Double>, lights: Lights, boost: Double = 1.4) -> Color {
+    /// Polished rose gold seen straight on, for a surface with this normal: it mirrors the same photographic
+    /// environment as the dial (Dial/world_env.png), sharper than the satin relief.
+    static func metalColor(normal n: SIMD3<Double>, lights: Lights, boost: Double = 1.1) -> Color {
         let v = SIMD3<Double>(0, 0, 1)
         let nov = max(simd_dot(n, v), 0.001)
         let r = 2 * nov * n - v
-        let t = smooth(-0.3, 0.9, simd_dot(r, lights.up))
-        let viewer = 1 - 0.2 * smooth(0.86, 0.99, r.z)   // hands sit higher: less of the viewer in them
-        let room = (0.03 + t * t) * viewer
-        let k = min(max(simd_dot(r, lights.key), 0), 1)
-        let f = min(max(simd_dot(r, lights.fill), 0), 1)
-        let e = 8 + (1 - 0.1) * 70.0   // polished hands: sharper than the satin relief
-        let env = room + 1.6 * pow(k, e) + 4 * pow(k, e * 5) + 1.1 * pow(f, e * 0.7)
+        let env = EnvMap.shared.radiance(r, lights: lights, level: 0) * 0.6
+                + EnvMap.shared.radiance(r, lights: lights, level: 1) * 0.4
         let fres = gold + (SIMD3<Double>(repeating: 1) - gold) * pow(1 - nov, 5)
         let c = fres * env * boost
-        func tone(_ x: Double) -> Double { pow(min(max(1 - exp(-x * 1.2), 0), 1), 1 / 1.15) }
+        func tone(_ x: Double) -> Double { pow(min(max(1 - exp(-x * 1.3), 0), 1), 1 / 1.15) }
         return Color(red: tone(c.x), green: tone(c.y), blue: tone(c.z))
     }
 
