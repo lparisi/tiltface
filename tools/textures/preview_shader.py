@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-GOLD = np.array([1.00, 0.70, 0.36])        # rose gold reflectance (linear): absorbs blue strongly
+GOLD = np.array([1.00, 0.80, 0.50])        # pale champagne gold reflectance (linear)
 SIGMA = np.array([3.4, 4.2, 0.55])         # ultramarine lacquer: absorbs green most, a little red passes (violet cast)
 PIGMENT = np.array([0.030, 0.018, 0.21])   # light scattered back by the pigment
 ENV_MAX = 256.0
@@ -57,6 +57,12 @@ class Env:
         px = np.concatenate([u * 256, (level + v) * 128], -1)
         c = sample(self.img, px)
         return np.exp2(c * np.log2(1 + ENV_MAX)) - 1
+
+    def neutral(self, r, level, amount=0.7):
+        """The room as a jeweller would light it: same light and shadow, colour mostly removed."""
+        e = self(r, level)
+        lum = dot(e, np.array([0.2126, 0.7152, 0.0722]))
+        return e * (1 - amount) + lum * amount
 
 
 def decode(enc):
@@ -114,8 +120,8 @@ def shade(t, g):
     nov = np.clip(dot(n_metal, v), 0.001, 1)
     r = 2 * nov * n_metal - v
     fres = GOLD + (1 - GOLD) * (1 - nov) ** 5
-    cavity = np.clip(0.75 + 0.5 * hgt, 0, 1)
-    refl = env(r, 1) * 0.78 + env(r, 0) * 0.22
+    cavity = np.clip(0.8 + 0.6 * hgt, 0, 1)
+    refl = env.neutral(r, 0) * 0.35 + env.neutral(r, 1) * 0.65
     gold = fres * refl * (cavity + (1 - cavity) * GOLD) * 1.1
 
     # Blue lacquer: glassy surface over a bright metal base, coloured by absorption

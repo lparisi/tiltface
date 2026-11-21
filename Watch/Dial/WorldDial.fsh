@@ -35,6 +35,12 @@ vec2 envUV(vec3 r, float level, vec3 U, vec3 F, vec3 Rt) {
     return vec2(u, 1.0 - (level + v) / 3.0);
 }
 
+// The room as a jeweller would light it for the gold: same light and shadow, most of the colour removed.
+vec3 neutral(vec3 e) {
+    float lum = dot(e, vec3(0.2126, 0.7152, 0.0722));
+    return mix(e, vec3(lum), 0.7);
+}
+
 // Log-encoded texel -> radiance.
 vec3 envDecode(vec3 c, float lin) {
     if (lin > 0.5) { c = toSRGB(c); }
@@ -42,7 +48,7 @@ vec3 envDecode(vec3 c, float lin) {
 }
 
 void main() {
-    vec3 GOLD = vec3(1.00, 0.70, 0.36);        // rose gold reflectance: absorbs blue strongly
+    vec3 GOLD = vec3(1.00, 0.80, 0.50);        // pale champagne gold reflectance
     vec3 SIGMA = vec3(3.4, 4.2, 0.55);         // ultramarine lacquer: absorbs green most, a little red passes
     vec3 PIGMENT = vec3(0.030, 0.018, 0.21);   // light scattered back by the violet-blue pigment
 
@@ -99,12 +105,14 @@ void main() {
     float rr = min(lc, R);
     vec3 nCoat = lc < R ? normalize(vec3(c * (rr / max(lc, 0.001)), sqrt(Rs * Rs - rr * rr))) : vec3(0.0, 0.0, 1.0);
 
-    // Rose gold: satin metal mirroring the environment, tinted by its colour (twice in the cavities).
+    // Gold: a frosted, granular surface (per-texel grain is baked in the normals); each grain mirrors a different
+    // part of the room, tinted by the gold (twice in the cavities).
     float nov = clamp(dot(nMetal, v), 0.001, 1.0);
     vec3 r = 2.0 * nov * nMetal - v;
     vec3 fres = GOLD + (vec3(1.0) - GOLD) * pow(1.0 - nov, 5.0);
-    float cavity = clamp(0.75 + 0.5 * hgt, 0.0, 1.0);
-    vec3 refl = envDecode(texture2D(u_env, envUV(r, 1.0, U, F, Rt)).rgb, lin) * 0.78 + envDecode(texture2D(u_env, envUV(r, 0.0, U, F, Rt)).rgb, lin) * 0.22;
+    float cavity = clamp(0.8 + 0.6 * hgt, 0.0, 1.0);
+    vec3 refl = neutral(envDecode(texture2D(u_env, envUV(r, 0.0, U, F, Rt)).rgb, lin)) * 0.35
+              + neutral(envDecode(texture2D(u_env, envUV(r, 1.0, U, F, Rt)).rgb, lin)) * 0.65;
     vec3 gold = fres * refl * (vec3(cavity) + (1.0 - cavity) * GOLD) * 1.1;
 
     // Blue lacquer: glassy surface over a bright metal base; light is coloured by absorption on the way through.

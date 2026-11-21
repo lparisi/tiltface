@@ -148,6 +148,11 @@ def main(geojson, out_dir):
     out.mkdir(parents=True, exist_ok=True)
     u, v, globe, rho = project()
     land = sample_equirect(land_raster(geojson), u, v, globe)
+    # Stamped coasts are crumbly, not vector-smooth: roughen the shoreline and let it break into islets.
+    shape0 = land.shape
+    crumbs = fbm(shape0, 90, 3, 61) * 0.55 + fbm(shape0, 240, 2, 62) * 0.35
+    near_coast = np.exp(-((land - 0.5) / 0.35) ** 2) + np.clip(ndimage.gaussian_filter(land, 3) * (1 - land) * 3, 0, 1)
+    land = np.clip((land - 0.5 + crumbs * 0.55 * np.clip(near_coast, 0, 1)) * 3 + 0.5, 0, 1) * globe
     # Real relief: NASA-derived Earth normals integrated to height and high-passed (tools/textures/earth_relief.png)
     relief_src = np.asarray(Image.open(Path(__file__).with_name('earth_relief.png')), dtype=np.float64) / 65535
     earth = sample_equirect(relief_src, u, v, globe)
@@ -158,16 +163,13 @@ def main(geojson, out_dir):
     d_in = ndimage.distance_transform_edt(land_bin)          # inside land, distance to coast
     d_out = ndimage.distance_transform_edt(~land_bin)        # in ocean, distance to coast
 
-    # --- stamped rose-gold relief, like the photos: broad terrain (ranges, plateaus) under a fine satin grain,
-    # with a thin crisp bevel at the coast. No mid-size blobs: those read as cork / plastic.
-    shoulder = np.clip(d_in / (2.2 * SS), 0, 1)
-    shoulder = shoulder * shoulder * (3 - 2 * shoulder)
-    terrain = np.clip((earth - 0.25) / 0.75, 0, 1) ** 0.9           # real mountain ranges and plateaus
-    folds = ridged(shape, 30, 3, 12) * 0.18                       # creases of the stamping, much softer than the ranges
-    inland = np.clip(d_in / (4 * SS), 0, 1)
-    grain = fbm(shape, 260, 2, 9) * 0.06                         # satin grain
-    gold_h = 0.22 * shoulder + (0.75 * terrain + folds) * inland * shoulder + grain * shoulder
-    gold_h = gold_h * land
+    # --- stamped gold, like the photos: a frosted, granular surface (crystalline grains and small nugget clusters)
+    # over gentle real terrain, with a short rounded shoulder at the coast. No smooth waves: those read as chrome.
+    shoulder = np.clip(d_in / (1.6 * SS), 0, 1)
+    shoulder = np.sqrt(shoulder)
+    terrain = ndimage.gaussian_filter(np.clip((earth - 0.25) / 0.75, 0, 1), 1.5 * SS)
+    nuggets = ridged(shape, 70, 3, 12)                              # clusters ~3 px across
+    gold_h = (0.30 * shoulder + 0.55 * terrain * shoulder + 0.22 * nuggets * shoulder) * land
 
     # --- globe rim (half-round raised gold bezel) and applied markers
     r_px = rho * R
@@ -201,24 +203,12 @@ def main(geojson, out_dir):
     # --- height field of the metal (gold relief or base), plus the globe dome
     Rs = R * 1.9                                            # shallow spherical dome
     dome = np.sqrt(np.clip(Rs ** 2 - np.minimum(r_px, R) ** 2, 0, None)) - np.sqrt(Rs ** 2 - R ** 2)
-    relief_scale = 9.0 * SS
+    relief_scale = 7.0 * SS
     metal_h = dome + relief_scale * np.where(gold_mask > 0.5, height_metal, base)
 
     gy, gx = np.gradient(ndimage.gaussian_filter(metal_h, 0.6))
     n_metal = np.stack([-gx, -gy, np.ones_like(gx)], -1)
 
-    # Fine satin micro-facets on the gold: tiny, low tilt — a sparkle in the grain, not visible patches.
-    def facets(n_points, seed, amount):
-        r = np.random.default_rng(seed)
-        pts = r.random((n_points, 2)) * np.array(shape)
-        yy2, xx2 = np.mgrid[0: shape[0], 0: shape[1]]
-        _, idx = cKDTree(pts).query(np.stack([yy2.ravel(), xx2.ravel()], 1), k=1)
-        tilt = r.normal(0, amount, (n_points, 2))
-        return tilt[idx].reshape(shape[0], shape[1], 2)
-
-    tilt = facets(160000, 52, 0.06)
-    on_gold = (land * globe * shoulder)[..., None]
-    n_metal[..., 0:2] += tilt * on_gold
     n_metal /= np.linalg.norm(n_metal, axis=-1, keepdims=True)
 
     # --- gold flakes (paillons) suspended in the dark lacquer outside the globe
@@ -250,6 +240,13 @@ def main(geojson, out_dir):
         return np.clip(v * 0.5 + 0.5, 0, 1)
 
     nm = down(n_metal)
+    # Crystalline grain: every texel of gold gets its own small tilt, so each one catches a different part of the
+    # room — the fine sparkle of frosted gold. (The depth-of-field copy blurs it away toward the rim, as in a macro shot.)
+    gold_final = down(gold_mask * globe + mk + (rim_t > 0)).clip(0, 1)[..., None]
+    grain_xy = np.random.default_rng(71).normal(0, 1.0, (H, W, 2))
+    grain_xy = np.stack([ndimage.gaussian_filter(grain_xy[..., i], 0.9) for i in range(2)], -1)
+    grain_xy *= 0.16 / grain_xy.std()                                   # clustered crystals, gentle tilt
+    nm[..., 0:2] += grain_xy * (gold_final > 0.5) * down(np.clip(land * globe, 0, 1))[..., None]
     nm /= np.linalg.norm(nm, axis=-1, keepdims=True)
     metal = np.stack([enc(nm[..., 0]), enc(nm[..., 1]), down(b_chan)], -1)
     mat = np.stack([down(material), np.clip(down(flakes) * 1.8, 0, 1), down(np.clip(ao, 0, 1))], -1)

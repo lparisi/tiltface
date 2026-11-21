@@ -198,7 +198,7 @@ enum Lighting {
         let fill: SIMD3<Double>    // right
     }
 
-    static let gold = SIMD3<Double>(1.00, 0.70, 0.36)   // rose gold reflectance, as in the shader
+    static let gold = SIMD3<Double>(1.00, 0.80, 0.50)   // pale champagne gold, as in the shader
 
     /// Same room as the shader: "up" is opposite to gravity; screen y points down.
     static func lights(_ g: SIMD3<Double>) -> Lights {
@@ -218,8 +218,10 @@ enum Lighting {
         let v = SIMD3<Double>(0, 0, 1)
         let nov = max(simd_dot(n, v), 0.001)
         let r = 2 * nov * n - v
-        let env = EnvMap.shared.radiance(r, lights: lights, level: 0) * 0.6
+        let raw = EnvMap.shared.radiance(r, lights: lights, level: 0) * 0.6
                 + EnvMap.shared.radiance(r, lights: lights, level: 1) * 0.4
+        let lum = simd_dot(raw, SIMD3(0.2126, 0.7152, 0.0722))
+        let env = raw * 0.3 + SIMD3(repeating: lum) * 0.7     // neutral studio light, as for the dial gold
         let fres = gold + (SIMD3<Double>(repeating: 1) - gold) * pow(1 - nov, 5)
         let c = fres * env * boost
         func tone(_ x: Double) -> Double { pow(min(max(1 - exp(-x * 1.3), 0), 1), 1 / 1.15) }
